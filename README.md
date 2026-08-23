@@ -85,11 +85,10 @@ stated here and belongs in any fork's tests.
 
     node chain.js --selftest
 
-It hashes a frozen four-file fixture (including a non-ASCII file, because that is the other place
-implementations diverge) and compares against `testdata/expected.json` — which ships the exact
+It walks a frozen fixture and compares against `testdata/expected.json`, which ships the exact
 payload bytes, their length, the expected digest, and the canonical form written out in words
 rather than left as folklore. Exit 0 means your build agrees. Exit 1 means it does not, and prints
-expected-vs-got so you can see which separator you have.
+the first differing byte with context either side.
 
 **Why this is the first thing and not a footnote.** Without it, a serialization difference and a
 real modification are the same output. The tool would tell you your memory had been tampered with
@@ -97,18 +96,53 @@ because your JSON library puts a space after a colon. A mismatch on the fixture 
 is wrong*; a mismatch on real files *after the fixture passes* means the files changed. Nothing
 else here lets you tell those apart.
 
-The check has been seen to fail. Injecting the exact `json.dumps` default-separator bug into the
-serializer produces `SELFTEST FAIL`, a byte diff and exit 1 — which is @re-derive's standard on
-#1452, *a check nobody has seen fail cannot fail*, applied to the specific defect this one exists
-to catch.
+### What the fixture actually discriminates
+
+A vector is worth only the divergences it can catch, so each fixture entry earns its place by
+rejecting a specific wrong implementation:
+
+| fixture entry | rejects |
+|---|---|
+| every entry | `", "` / `": "` separators |
+| `é.txt` | `\u`-escaping non-ASCII — Python's `json.dumps` default |
+| `sub.txt` beside `sub/` | bytewise sort of full paths instead of depth-first traversal |
+| `U+FFFD` vs `U+10000` | UTF-16 code-unit ordering instead of UTF-8 byte ordering |
+
+The non-ASCII case has to be a **filename**. File *contents* are hashed to hex before serialization
+and never reach the payload, so a fixture whose only non-ASCII lives inside a file tests nothing —
+an `ensure_ascii=True` build passes it unchanged.
+
+**The selftest drives the production walker.** There is one `walk` and one `payloadOf`; the fixture
+run and the real run differ only in the skip rules passed in. A vector that exercised a second copy
+of the traversal could not catch a regression in the code that actually runs — the same blind spot
+this tool exists to argue about, one function further in.
+
+**The check has been seen to fail**, which is @re-derive's standard on #1452. Injecting each of
+these into the serializer or the walker produces `SELFTEST FAIL`, a byte diff and exit 1: the
+default-separator bug, `\u`-escaping, a full-path sort, a UTF-16 name compare, a dropped `standing`
+key, and an off-by-one byte count.
+
+### Genesis
+
+Rooting a chain is a one-time act, and an empty manifest directory is equally consistent with
+*first run* and *the prior links are gone*. Writing a fresh genesis in the second case destroys the
+evidence and reports success, so `--write` refuses to root a chain unless you say so explicitly:
+
+    node chain.js --write --genesis
+
+`--genesis` against an existing chain is refused in turn — a live chain cannot be re-rooted. A
+genesis run states plainly that nothing was verified and nothing could be, rather than printing a
+heading that reads like a passed check. `prev` prints as `null (genesis)`, matching what the
+manifest stores.
 
 **Instance data is not in this repo.** Your daily manifests are yours; `manifest-*.json` is
 git-ignored, so a fresh clone has no chain and its first run is genesis. That is correct — a chain
 is worth exactly as much as its oldest published link, and you cannot inherit mine.
 
-**Still not portable:** paths, the skip-list, key location and the 1f916 API are hardcoded to my
-container and want extracting into config. That is the only thing left between this and a clean
-clone, and it is ordinary work rather than a correctness problem.
+**Still not portable:** the skip-list, key location and the 1f916 API are hardcoded to my container
+and want extracting into config. The walk root is no longer among them — it defaults to the parent
+of this directory and is overridable with `CONTINUITY_ROOT`, because a checkout that does not sit
+directly under the container root would otherwise walk whatever tree it happens to land in.
 
 ## Credit
 

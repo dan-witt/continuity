@@ -1,6 +1,12 @@
 {
  "note": "Pinned vector. Prove your implementation against this BEFORE pointing it at real memory. A mismatch here means your recipe is wrong; a mismatch on real files after this passes means the files changed.",
- "canonical_form": "sha256 over JSON.stringify-equivalent bytes: compact separators (no space after , or :), keys in the literal order date, prev_manifest_hash, files; each file object in the order path, sha256, bytes, standing; files sorted by path bytewise ascending; non-ASCII NOT escaped, UTF-8 as-is; no trailing newline.",
+ "canonical_form": "sha256 over these exact bytes: the JSON object {date, prev_manifest_hash, files} with keys in that literal order, serialized with compact separators (no space after ',' or ':'); each file object with keys in the order path, sha256, bytes, standing; non-ASCII emitted as raw UTF-8 and NEVER \\u-escaped (Python's json.dumps defaults to ensure_ascii=True and will fail here); no trailing newline. File order is depth-first pre-order: within each directory, entries are sorted by the UTF-8 BYTES of the entry name, and a directory's contents are emitted at that directory's own sorted position. Two traps: this is NOT a bytewise sort of the full path strings, which would place 'sub.txt' before 'sub/c.txt' since '.' (0x2E) precedes '/' (0x2F); and it is NOT JavaScript's default string compare, which orders UTF-16 code units and puts U+10000 before U+FFFD where UTF-8 bytes put U+FFFD first.",
+ "fixture_covers": [
+  "compact separators — a ', ' or ': ' build fails on every entry",
+  "non-ASCII in a FILENAME (é.txt) — file CONTENT is hashed to hex and never reaches the payload, so content alone cannot test this",
+  "directory-vs-sibling-file ordering (sub/ against sub.txt) — separates depth-first traversal from a full-path bytewise sort",
+  "supplementary-plane ordering (U+FFFD against U+10000) — separates a UTF-8 byte compare from a UTF-16 code-unit compare"
+ ],
  "date": "2026-01-01",
  "prev_manifest_hash": null,
  "files": [
@@ -27,9 +33,33 @@
    "sha256": "e3c8ef17901b1e78b17f7e691ead218b8c3364fdf355df46a4bd407b5d9e9707",
    "bytes": 20,
    "standing": true
+  },
+  {
+   "path": "sub.txt",
+   "sha256": "673953e0ad7fc53247f4feadc2c2d4506396840d1f8796526f48d47333ac7652",
+   "bytes": 6,
+   "standing": true
+  },
+  {
+   "path": "é.txt",
+   "sha256": "751e7ba32ae2038db2f8f36d4a34f2a93494b643796169ded3c2144547e2adec",
+   "bytes": 18,
+   "standing": true
+  },
+  {
+   "path": "�.txt",
+   "sha256": "4bec5c13d859c8a191c9c62ceac5160ba1109d56a490e1c0c02ada093c63b41e",
+   "bytes": 9,
+   "standing": true
+  },
+  {
+   "path": "𐀀.txt",
+   "sha256": "2bc15566669023f8405d607fb0839877e72834bb1e27156372b18b7dab46568a",
+   "bytes": 20,
+   "standing": true
   }
  ],
- "payload_bytes_len": 543,
- "payload_utf8": "{\"date\":\"2026-01-01\",\"prev_manifest_hash\":null,\"files\":[{\"path\":\"a.txt\",\"sha256\":\"b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060\",\"bytes\":6,\"standing\":true},{\"path\":\"b.txt\",\"sha256\":\"77e4ae400f6bd4ea22d74a712cb25af0e1ef2d15fc06561817af047677afa7fc\",\"bytes\":10,\"standing\":true},{\"path\":\"sub/c.txt\",\"sha256\":\"ae9a6306a205417afddd14316cc1d0d5e04a98f1be10865dce643925ee070ce2\",\"bytes\":6,\"standing\":true},{\"path\":\"sub/d.txt\",\"sha256\":\"e3c8ef17901b1e78b17f7e691ead218b8c3364fdf355df46a4bd407b5d9e9707\",\"bytes\":20,\"standing\":true}]}",
- "expected_manifest_hash": "38adf0cd54036c5d1608313e33f92b43c252f0557520b8246acb5bc513db8f31"
+ "payload_bytes_len": 1029,
+ "payload_utf8": "{\"date\":\"2026-01-01\",\"prev_manifest_hash\":null,\"files\":[{\"path\":\"a.txt\",\"sha256\":\"b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060\",\"bytes\":6,\"standing\":true},{\"path\":\"b.txt\",\"sha256\":\"77e4ae400f6bd4ea22d74a712cb25af0e1ef2d15fc06561817af047677afa7fc\",\"bytes\":10,\"standing\":true},{\"path\":\"sub/c.txt\",\"sha256\":\"ae9a6306a205417afddd14316cc1d0d5e04a98f1be10865dce643925ee070ce2\",\"bytes\":6,\"standing\":true},{\"path\":\"sub/d.txt\",\"sha256\":\"e3c8ef17901b1e78b17f7e691ead218b8c3364fdf355df46a4bd407b5d9e9707\",\"bytes\":20,\"standing\":true},{\"path\":\"sub.txt\",\"sha256\":\"673953e0ad7fc53247f4feadc2c2d4506396840d1f8796526f48d47333ac7652\",\"bytes\":6,\"standing\":true},{\"path\":\"é.txt\",\"sha256\":\"751e7ba32ae2038db2f8f36d4a34f2a93494b643796169ded3c2144547e2adec\",\"bytes\":18,\"standing\":true},{\"path\":\"�.txt\",\"sha256\":\"4bec5c13d859c8a191c9c62ceac5160ba1109d56a490e1c0c02ada093c63b41e\",\"bytes\":9,\"standing\":true},{\"path\":\"𐀀.txt\",\"sha256\":\"2bc15566669023f8405d607fb0839877e72834bb1e27156372b18b7dab46568a\",\"bytes\":20,\"standing\":true}]}",
+ "expected_manifest_hash": "2fc96ec515eeab11b10f7b7ca28aa20b12aaa326993a1c25090da9db04df948b"
 }
