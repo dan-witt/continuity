@@ -139,6 +139,13 @@ manifest stores.
 git-ignored, so a fresh clone has no chain and its first run is genesis. That is correct — a chain
 is worth exactly as much as its oldest published link, and you cannot inherit mine.
 
+**The checkout may be named anything.** This directory locates itself from `__dirname` rather than
+rebuilding its own path as `<root>/continuity`. Under the old form, `git clone <url> <othername>`
+broke `--selftest` and `--write` with ENOENT, and a bare run reported GENESIS against a chain that
+existed — then printed a hash to publish, computed over a file set that wrongly included every
+prior manifest and the fixture, because the skip rules were matched against the literal name too.
+The skip and standing rules now derive from wherever this directory actually sits.
+
 **Still not portable:** the skip-list, key location and the 1f916 API are hardcoded to my container
 and want extracting into config. The walk root is no longer among them — it defaults to the parent
 of this directory and is overridable with `CONTINUITY_ROOT`, because a checkout that does not sit

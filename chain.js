@@ -7,23 +7,35 @@
 // controls: the daily post, which is public, timestamped and not editable.
 // Verify FIRST, before anything else touches the container.
 const fs=require("fs"), path=require("path"), crypto=require("crypto");
+// This directory, whatever it is called. Reconstructing it as join(root,"continuity")
+// would work only for a checkout named exactly that, and `git clone <url> <othername>`
+// then breaks --selftest — the one command a cloner is told to run first.
+const C=__dirname;
 // Root defaults to the parent of this directory. Override when the checkout does not
 // sit directly under the container root, so the walk cannot wander into unrelated trees.
-const D=process.env.CONTINUITY_ROOT?path.resolve(process.env.CONTINUITY_ROOT):path.resolve(__dirname,"..");
-const C=path.join(D,"continuity");
+const D=process.env.CONTINUITY_ROOT?path.resolve(process.env.CONTINUITY_ROOT):path.resolve(C,"..");
+// Where this directory sits inside the walked tree, used by the skip and standing rules.
+// null when it sits outside D entirely, in which case none of them can match.
+const rel0=path.relative(D,C);
+const TOOLDIR=(rel0===""||rel0.startsWith("..")||path.isAbsolute(rel0))?null:rel0.split(path.sep).join("/");
 const sha=b=>crypto.createHash("sha256").update(b).digest("hex");
 const ARGS=new Set(process.argv.slice(2));
 
 // Standing set: changes here are meaningful. Volatile files are manifested too but flagged.
 const STANDING=new Set(["IDENTITY.md","evictions.md","verified-against-commit.txt"]);
 const SKIP=new Set(["snapshots","inbox.jsonl","drafts","published",".last-pass-ms","node_modules",".git"]);
-// continuity/ IS manifested — the verifier must not be exempt from the check it performs
-// (a chain.js edited to always print PASS is the obvious attack). Only the manifests
-// themselves are excluded, since a manifest cannot contain its own hash. The fixture is
-// excluded because it is test input, not identity; testdata/expected.json IS manifested,
-// which is what puts the canonical form itself inside the chain.
-const SKIP_MANIFEST=/^continuity\/manifest-\d{4}-\d{2}-\d{2}\.json$/;
-const SKIP_FIXTURE=/^continuity\/testdata\/fixture\//;
+// This directory IS manifested — the verifier must not be exempt from the check it
+// performs (a chain.js edited to always print PASS is the obvious attack). Only the
+// manifests themselves are excluded, since a manifest cannot contain its own hash. The
+// fixture is excluded because it is test input, not identity; testdata/expected.json IS
+// manifested, which is what puts the canonical form itself inside the chain.
+//
+// These are derived from TOOLDIR rather than the literal name "continuity", for the same
+// reason C is: under a differently-named checkout the old patterns matched nothing, and
+// every prior manifest and fixture file silently entered the manifest.
+const MANIFEST_NAME=/^manifest-\d{4}-\d{2}-\d{2}\.json$/;
+const inTool=rel=>TOOLDIR!==null&&(rel===TOOLDIR||rel.startsWith(TOOLDIR+"/"));
+const underTool=rel=>inTool(rel)?rel.slice(TOOLDIR.length+1):null;
 
 // One walker. The selftest drives this same function over the fixture, so the vector
 // certifies the code that actually runs rather than a second copy of it.
@@ -50,8 +62,13 @@ function walk(dir,opts,base=""){
 }
 
 const PROD={
-  skip:(rel,name)=>SKIP.has(rel)||SKIP.has(name)||SKIP_MANIFEST.test(rel)||SKIP_FIXTURE.test(rel),
-  standing:rel=>STANDING.has(rel)||rel.startsWith("sessions/")||rel.startsWith("continuity/")
+  skip:(rel,name)=>{
+    if(SKIP.has(rel)||SKIP.has(name)) return true;
+    const u=underTool(rel);
+    if(u===null) return false;
+    return (u===name&&MANIFEST_NAME.test(name))||u.startsWith("testdata/fixture/");
+  },
+  standing:rel=>STANDING.has(rel)||rel.startsWith("sessions/")||inTool(rel)
 };
 const FIXTURE={skip:()=>false, standing:()=>true};
 
@@ -61,7 +78,7 @@ const FIXTURE={skip:()=>false, standing:()=>true};
 const payloadOf=(date,prevHash,files)=>JSON.stringify({date,prev_manifest_hash:prevHash,files});
 
 function manifests(){
-  return fs.existsSync(C)?fs.readdirSync(C).filter(f=>/^manifest-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort():[];
+  return fs.existsSync(C)?fs.readdirSync(C).filter(f=>MANIFEST_NAME.test(f)).sort():[];
 }
 
 // --selftest: prove the recipe against the pinned vector BEFORE touching real memory.
