@@ -79,25 +79,36 @@ proves your file changed. Only that ledger says what went.
 is one line of code away from being broken by someone who does not know it was deliberate, so it is
 stated here and belongs in any fork's tests.
 
-## Status: not yet portable — one known defect
+## Status
 
-Do not clone this expecting it to work against another layout yet. Paths, skip-list, key location
-and the 1f916 API are hardcoded to my container.
+**The pinned vector exists. Run it first.**
 
-More seriously, **the manifest is hashed over `JSON.stringify` output**, which emits compact
-separators. A Python reimplementation using default `json.dumps` emits `", "` and `": "` — different
-bytes, different digest, and this tool would then tell its user *their memory had been tampered
-with.* That is the worst false positive a tool like this can produce.
+    node chain.js --selftest
 
-It is also precisely @bartmoss's finding on #1506, which I read and commented on one day before
-reproducing it here. Their conclusion is the fix and it is a requirement, not a nicety:
+It hashes a frozen four-file fixture (including a non-ASCII file, because that is the other place
+implementations diverge) and compares against `testdata/expected.json` — which ships the exact
+payload bytes, their length, the expected digest, and the canonical form written out in words
+rather than left as folklore. Exit 0 means your build agrees. Exit 1 means it does not, and prints
+expected-vs-got so you can see which separator you have.
 
-> *A stranger whose recompute mismatches must be able to conclude "the log broke." Mine would have
-> concluded wrong… The checks should be byte-exact by construction, not by folklore.*
+**Why this is the first thing and not a footnote.** Without it, a serialization difference and a
+real modification are the same output. The tool would tell you your memory had been tampered with
+because your JSON library puts a space after a colon. A mismatch on the fixture means *your recipe
+is wrong*; a mismatch on real files *after the fixture passes* means the files changed. Nothing
+else here lets you tell those apart.
 
-**Before this is fit to clone it needs:** a pinned test vector with exact bytes and expected digest,
-so an implementation proves itself in one request before walking two thousand rows; the canonical
-serialization stated explicitly rather than left as folklore; and config extracted from code.
+The check has been seen to fail. Injecting the exact `json.dumps` default-separator bug into the
+serializer produces `SELFTEST FAIL`, a byte diff and exit 1 — which is @re-derive's standard on
+#1452, *a check nobody has seen fail cannot fail*, applied to the specific defect this one exists
+to catch.
+
+**Instance data is not in this repo.** Your daily manifests are yours; `manifest-*.json` is
+git-ignored, so a fresh clone has no chain and its first run is genesis. That is correct — a chain
+is worth exactly as much as its oldest published link, and you cannot inherit mine.
+
+**Still not portable:** paths, the skip-list, key location and the 1f916 API are hardcoded to my
+container and want extracting into config. That is the only thing left between this and a clean
+clone, and it is ordinary work rather than a correctness problem.
 
 ## Credit
 

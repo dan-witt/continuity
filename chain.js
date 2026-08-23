@@ -18,12 +18,13 @@ const SKIP=new Set(["snapshots","inbox.jsonl","drafts","published",".last-pass-m
 // (a chain.js edited to always print PASS is the obvious attack). Only the manifests
 // themselves are excluded, since a manifest cannot contain its own hash.
 const SKIP_RE=/^continuity\/manifest-\d{4}-\d{2}-\d{2}\.json$/;
+const SKIP_RE2=/^continuity\/testdata\/fixture\//;
 
 function walk(dir,base=""){
   const out=[];
   for(const e of fs.readdirSync(dir,{withFileTypes:true}).sort((a,b)=>a.name<b.name?-1:1)){
     const rel=base?base+"/"+e.name:e.name;
-    if(SKIP.has(rel)||SKIP.has(e.name)||SKIP_RE.test(rel)) continue;
+    if(SKIP.has(rel)||SKIP.has(e.name)||SKIP_RE.test(rel)||SKIP_RE2.test(rel)) continue;
     if(e.isDirectory()) out.push(...walk(path.join(dir,e.name),rel));
     else if(e.isFile()){
       const buf=fs.readFileSync(path.join(dir,e.name));
@@ -36,6 +37,39 @@ function walk(dir,base=""){
 
 function manifests(){
   return fs.existsSync(C)?fs.readdirSync(C).filter(f=>/^manifest-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort():[];
+}
+
+function walkPlain(dir,base=""){const out=[];
+  for(const e of fs.readdirSync(dir,{withFileTypes:true}).sort((a,b)=>a.name<b.name?-1:1)){
+    const rel=base?base+"/"+e.name:e.name;
+    if(e.isDirectory()) out.push(...walkPlain(path.join(dir,e.name),rel));
+    else {const buf=fs.readFileSync(path.join(dir,e.name)); out.push({path:rel,sha256:sha(buf),bytes:buf.length,standing:true});}
+  } return out;}
+
+// --selftest: prove the recipe against the pinned vector BEFORE touching real memory.
+// A mismatch here means your implementation is wrong. A mismatch on real files
+// AFTER this passes means the files actually changed. Without this step you cannot
+// tell those apart, and the tool will tell a stranger their memory was tampered with.
+if(process.argv[2]==="--selftest"){
+  const T=path.join(C,"testdata");
+  const exp=JSON.parse(fs.readFileSync(path.join(T,"expected.json"),"utf8"));
+  const got=walkPlain(path.join(T,"fixture"));
+  const payload=JSON.stringify({date:exp.date,prev_manifest_hash:exp.prev_manifest_hash,files:got});
+  const digest=sha(payload);
+  const okBytes=payload===exp.payload_utf8;
+  const okHash=digest===exp.expected_manifest_hash;
+  console.log("=== selftest against pinned vector ===");
+  console.log("  files walked      "+got.length+" (expected "+exp.files.length+")");
+  console.log("  payload bytes     "+Buffer.byteLength(payload)+" (expected "+exp.payload_bytes_len+")");
+  console.log("  serialization     "+(okBytes?"PASS":"FAIL — your JSON bytes differ from the canonical form"));
+  console.log("  digest            "+(okHash?"PASS":"FAIL — got "+digest.slice(0,16)+", expected "+exp.expected_manifest_hash.slice(0,16)));
+  if(!okBytes){
+    console.log("\n  canonical form: "+exp.canonical_form);
+    console.log("\n  expected: "+exp.payload_utf8.slice(0,160));
+    console.log("  got:      "+payload.slice(0,160));
+  }
+  console.log("\n"+(okBytes&&okHash?"SELFTEST PASS — safe to point at real files.":"SELFTEST FAIL — do NOT trust this build against real memory."));
+  process.exit(okBytes&&okHash?0:1);
 }
 
 const files=walk(D);
@@ -80,6 +114,16 @@ if(prev){
   if(undisclosed.length) console.log("\n  ** STANDING FILE MODIFIED WITH NO _original.md: "+undisclosed.join(", ")+" **");
 }
 if(process.argv[2]==="--write"){
+  // One manifest per day, written once, at publish time. Re-running --write would
+  // otherwise overwrite today's manifest with one chained to the copy it just destroyed,
+  // silently losing a link. Refuse instead.
+  const target=path.join(C,"manifest-"+date+".json");
+  if(fs.existsSync(target)){
+    console.log("\nREFUSED: continuity/manifest-"+date+".json already exists.");
+    console.log("One manifest per day. Delete it deliberately if the day's hash has NOT been published yet;");
+    console.log("if it has been published, the chain is already anchored and must not be rewritten.");
+    process.exit(2);
+  }
   fs.writeFileSync(path.join(C,"manifest-"+date+".json"), JSON.stringify({date, prev_manifest_hash: prev?prev.manifest_hash:null, files, manifest_hash},null,1));
   console.log("\nwritten: continuity/manifest-"+date+".json");
 }
