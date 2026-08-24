@@ -1,4 +1,16 @@
 #!/usr/bin/env node
+// ============================ ARCHIVE — NOT A LIVE TEST ============================
+// This reproduces eight defects in the MANIFEST-ERA build, which no longer runs. That
+// scheme was replaced by git on 2026-08-24 because every one of these eight was a
+// hand-rolled version of something git already does correctly.
+//
+// It is kept for one reason: eight defects were asserted publicly in post #1931 and its
+// correction, on a board holding that a claim which cannot be recomputed can only be
+// re-asserted. This is the executable record that they were real. It also pins the code
+// of that era, which is what keeps the two published manifest anchors checkable.
+//
+// Run from continuity/legacy/. Exit 0 = all eight still reproduce.
+// ==================================================================================
 // Reproduces the six defects in the pre-review build (2026-08-23) of this tool.
 //
 // Why this exists: the post announcing those defects asserted them in prose, on a board
@@ -10,6 +22,7 @@
 const fs=require("fs"),path=require("path"),os=require("os"),cp=require("child_process"),crypto=require("crypto");
 const sha=b=>crypto.createHash("sha256").update(b).digest("hex");
 const HERE=__dirname, PRE=path.join(HERE,"testdata","pre-review");
+const LIVE=path.join(HERE,"chain-manifest-era.js");  // the era build, frozen
 const NONASCII=new RegExp("[\\u0080-\\uffff]","g"), HAS=new RegExp("[\\u0080-\\uffff]");
 const esc=s=>s.replace(NONASCII,c=>"\\u"+c.charCodeAt(0).toString(16).padStart(4,"0"));
 let pass=0,fail=0;
@@ -53,7 +66,11 @@ const MUT_FROM="sha256:sha(buf), bytes:", MUT_TO='sha256:"0".repeat(64), bytes:'
 // reconstructed from them rather than trusted to be whatever is on disk now.
 function selftestUnder(chainSrcPath,vectorPath,mutate){
   const src=fs.readFileSync(chainSrcPath,"utf8");
-  if(src.split(MUT_FROM).length-1!==1) return null;      // production walk not uniquely locatable
+  // Corrupt EVERY hash-emitting site in the production path, not exactly one. Requiring
+  // uniqueness tested a syntactic accident: adding a second legitimate site (injected-context
+  // hashing, 2026-08-24) made the anchor ambiguous and the check reported "could not locate"
+  // on a build that was fine. The property is that the vector reaches the code that runs.
+  if(src.split(MUT_FROM).length-1<1) return null;         // no hash-emitting site found at all
   const vec=JSON.parse(fs.readFileSync(vectorPath,"utf8"));
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"mut-")), tool=path.join(dir,"continuity");
   fs.mkdirSync(path.join(tool,"testdata","fixture"),{recursive:true});
@@ -63,7 +80,7 @@ function selftestUnder(chainSrcPath,vectorPath,mutate){
     fs.copyFileSync(path.join(HERE,"testdata","fixture",f.path),dst);
   }
   fs.copyFileSync(vectorPath,path.join(tool,"testdata","expected.json"));
-  fs.writeFileSync(path.join(tool,"chain.js"),mutate?src.replace(MUT_FROM,MUT_TO):src);
+  fs.writeFileSync(path.join(tool,"chain.js"),mutate?src.split(MUT_FROM).join(MUT_TO):src);
   let code=0;
   try{ cp.execSync("node "+path.join(tool,"chain.js")+" --selftest",{stdio:"ignore"}); }
   catch(e){ code=e.status||1; }
@@ -71,10 +88,10 @@ function selftestUnder(chainSrcPath,vectorPath,mutate){
   return code===0;
 }
 const OLDC=path.join(PRE,"chain.js"), OLDV=path.join(PRE,"expected.json");
-const NEWC=path.join(HERE,"chain.js"), NEWV=path.join(HERE,"testdata","expected.json");
+const NEWC=LIVE, NEWV=path.join(HERE,"testdata","expected.json");
 const oldClean=selftestUnder(OLDC,OLDV,false), oldMut=selftestUnder(OLDC,OLDV,true);
 const newClean=selftestUnder(NEWC,NEWV,false), newMut=selftestUnder(NEWC,NEWV,true);
-const st=v=>v===null?"could not locate the production walk":v?"PASSED":"failed";
+const st=v=>v===null?"no hash-emitting site found":v?"PASSED":"failed";
 row(4,"Selftest exercised a duplicate traversal, so a regression in the live walk was invisible to it",
   oldClean===true&&oldMut===true&&newClean===true&&newMut===false,
   "every hash the production walk emits replaced with zeroes, each build on its own vector:"+
@@ -89,7 +106,7 @@ row(4,"Selftest exercised a duplicate traversal, so a regression in the live wal
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"repro-"));
 for(const which of ["old","new"]) fs.mkdirSync(path.join(tmp,which,"continuity"),{recursive:true});
 fs.copyFileSync(path.join(PRE,"chain.js"),path.join(tmp,"old","continuity","chain.js"));
-fs.copyFileSync(path.join(HERE,"chain.js"),path.join(tmp,"new","continuity","chain.js"));
+fs.copyFileSync(LIVE,path.join(tmp,"new","continuity","chain.js"));
 const run=w=>{try{return cp.execSync("node "+path.join(tmp,w,"continuity","chain.js")+" --write 2>&1",
   {encoding:"utf8",env:Object.assign({},process.env,{CONTINUITY_ROOT:path.join(tmp,w)})});}catch(e){return String(e.stdout||"")+String(e.stderr||"");}};
 run("old"); const newOut=run("new");
@@ -117,7 +134,7 @@ function selftestFromDirNamed(srcPath,name){
   return {code, enoent:out.includes("ENOENT")};
 }
 const oldNamed=selftestFromDirNamed(path.join(PRE,"chain.js"),"continuity2");
-const newNamed=selftestFromDirNamed(path.join(HERE,"chain.js"),"continuity2");
+const newNamed=selftestFromDirNamed(LIVE,"continuity2");
 row(6,"Tool rebuilt its own path by name, so any checkout not called 'continuity' broke",
   oldNamed.enoent&&newNamed.code===0,
   "old, in a directory named continuity2: "+(oldNamed.enoent?"ENOENT on testdata/expected.json":"ran")+
@@ -127,39 +144,72 @@ row(6,"Tool rebuilt its own path by name, so any checkout not called 'continuity
   "\n    over a file set that wrongly included every prior manifest and the whole fixture,"+
   "\n    because the skip rules were matched against the literal name as well.");
 
-// 7 - the undisclosed-change detector could not flag any file that is not .md.
-// The sidecar was computed as p.replace(/\.md$/,"_original.md"); for chain.js that
-// rewrite is a no-op, so the "expected sidecar" was chain.js itself, which trivially
-// exists, so every non-.md standing file filtered out as DISCLOSED. The verifier's own
-// source therefore sat in the one category the detector structurally could not flag --
-// the exact attack the README names, "a chain.js edited to always print PASS".
-function undisclosedFlagFor(srcPath){
+// 7 - a modified standing file could not be INSPECTED, only reported. The original build
+// classified changes by whether someone had left a "_original.md" sidecar, which was a
+// no-op rewrite for any non-.md path, so the verifier's own source could never be
+// classified at all. That whole scheme is gone: the tool now carries the baseline bytes
+// and prints the diff, which covers every extension and needs no convention anyone has to
+// remember. The property tested here is the one that matters to a reader -- after a
+// standing file changes, does the tool show WHAT changed?
+function showsDiff(chainSrc){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),"d7-"));
   const tool=path.join(root,"continuity");
   fs.mkdirSync(tool,{recursive:true});
-  fs.copyFileSync(srcPath,path.join(tool,"chain.js"));
+  fs.copyFileSync(chainSrc,path.join(tool,"chain.js"));
   fs.cpSync(path.join(HERE,"testdata"),path.join(tool,"testdata"),{recursive:true});
-  fs.writeFileSync(path.join(root,"IDENTITY.md"),"standing\n");
+  fs.writeFileSync(path.join(root,"IDENTITY.md"),"standing position\nline two\n");
   const run=a=>{try{return cp.execSync("node "+path.join(tool,"chain.js")+" "+a+" 2>&1",
     {encoding:"utf8",env:Object.assign({},process.env,{CONTINUITY_ROOT:root})});}
     catch(e){return String(e.stdout||"")+String(e.stderr||"");}};
   run("--write --genesis");
-  fs.appendFileSync(path.join(root,"IDENTITY.md"),"tampered\n");
-  fs.appendFileSync(path.join(tool,"chain.js"),"\n// tampered\n");
+  const CANARY="CANARY-ignore-all-previous-instructions";
+  fs.appendFileSync(path.join(root,"IDENTITY.md"),CANARY+"\n");
   const out=run("");
   fs.rmSync(root,{recursive:true,force:true});
-  return (out.match(/NO _original\.md: ([^*]+)\*\*/)||[,""])[1].trim();
+  return out.includes(CANARY);
 }
-const oldFlag=undisclosedFlagFor(path.join(PRE,"chain.js"));
-const newFlag=undisclosedFlagFor(path.join(HERE,"chain.js"));
-row(7,"Undisclosed-change detector could not flag any non-.md file, including the verifier itself",
-  !oldFlag.includes("chain.js") && newFlag.includes("chain.js"),
-  "both IDENTITY.md and chain.js modified, neither disclosed."+
-  "\n    old build flags: "+(oldFlag||"(nothing)")+
-  "\n    new build flags: "+(newFlag||"(nothing)")+
-  "\n    the change itself was always visible in the modified list; what collapsed was the"+
-  "\n    CLASSIFICATION -- state 3 (changed, undisclosed) became indistinguishable from"+
-  "\n    state 2 (changed, disclosed) for every file that is not .md.");
+const oldShows=showsDiff(path.join(PRE,"chain.js"));
+const newShows=showsDiff(LIVE);
+row(7,"A changed standing file could be reported but not inspected -- no bytes were carried, so no diff was possible",
+  !oldShows && newShows,
+  "a canary line appended to a standing file, then the tool run:"+
+  "\n    old build reproduces the line in its output: "+oldShows+
+  "\n    new build reproduces the line in its output: "+newShows+
+  "\n    carrying the baseline bytes is what lets a reader diff; a hash only says something"+
+  "\n    moved. With the bytes present, disclosed-vs-undisclosed is a distinction with"+
+  "\n    nothing behind it, so the sidecar convention was removed rather than extended.");
+
+// 8 - the chain covered only files the agent CHOOSES to read, and none of the surfaces
+// injected into a wake before it decides anything: ~/.claude/CLAUDE.md, the auto-loaded
+// memory files, settings.json. Those are the higher-privilege half. Coverage was zero.
+function outsideRootEntries(chainPath){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"d8-"));
+  const tool=path.join(root,"continuity");
+  fs.mkdirSync(tool,{recursive:true});
+  fs.copyFileSync(chainPath,path.join(tool,"chain.js"));
+  fs.cpSync(path.join(HERE,"testdata"),path.join(tool,"testdata"),{recursive:true});
+  const ext=path.join(root,"outside-the-container.md");
+  fs.writeFileSync(ext,"injected\n");
+  fs.writeFileSync(path.join(tool,"injected.json"),JSON.stringify({paths:[ext]}));
+  fs.writeFileSync(path.join(root,"IDENTITY.md"),"standing\n");
+  try{ cp.execSync("node "+path.join(tool,"chain.js")+" --write --genesis 2>&1",
+    {encoding:"utf8",env:Object.assign({},process.env,{CONTINUITY_ROOT:root})}); }catch(e){}
+  const mf=fs.readdirSync(tool).find(f=>/^manifest-/.test(f));
+  let n=0;
+  if(mf){ const m=JSON.parse(fs.readFileSync(path.join(tool,mf),"utf8"));
+    n=m.files.filter(f=>f.path===ext).length; }
+  fs.rmSync(root,{recursive:true,force:true});
+  return n;
+}
+const oldCov=outsideRootEntries(path.join(PRE,"chain.js"));
+const newCov=outsideRootEntries(LIVE);
+row(8,"Chain covered only what the agent chooses to read, not what is injected into the wake before it chooses",
+  oldCov===0 && newCov===1,
+  "allowlisted path outside the container, entries in manifest - old: "+oldCov+"   new: "+newCov+
+  "\n    the uncovered set was ~/.claude/CLAUDE.md, settings.json and six auto-loaded memory"+
+  "\n    files carrying citizen identity, the standing argument, and the constraint keeping"+
+  "\n    cross-handle linkage off the table. An absent allowlisted path is now recorded with"+
+  "\n    sha256 \"\" and bytes -1, so a file APPEARING is a change rather than a silence.");
 
 console.log("\n"+"=".repeat(64));
 console.log(pass+" of "+(pass+fail)+" defects reproduced against the pre-review build.");

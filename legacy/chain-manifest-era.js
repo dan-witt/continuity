@@ -68,7 +68,10 @@ const PROD={
     if(u===null) return false;
     return (u===name&&MANIFEST_NAME.test(name))||u.startsWith("testdata/fixture/");
   },
-  standing:rel=>STANDING.has(rel)||rel.startsWith("sessions/")||inTool(rel)
+  // Baseline blobs are content-addressed and immutable: a swap is impossible by name,
+  // so they need no diff and no standing mark. DELETION still shows in the manifest.
+  standing:rel=>(STANDING.has(rel)||rel.startsWith("sessions/")||inTool(rel))
+                && !rel.startsWith("continuity/baseline/")
 };
 const FIXTURE={skip:()=>false, standing:()=>true};
 
@@ -116,7 +119,22 @@ if(ARGS.has("--selftest")){
   process.exit(ok?0:1);
 }
 
-const files=walk(D,PROD);
+// Injected-context surfaces: allowlisted absolute paths outside the container that
+// arrive in a wake before it reads anything. They are the higher-privilege half and were
+// uncovered until 2026-08-24. Entries keep the same four-key shape so prior manifests
+// still recompute; an absent path is recorded with sha256 "" and bytes -1 so that a file
+// APPEARING is a change rather than a silence.
+function injected(){
+  const cfg=path.join(C,"injected.json");
+  if(!fs.existsSync(cfg)) return [];
+  const list=JSON.parse(fs.readFileSync(cfg,"utf8")).paths||[];
+  return list.map(abs=>{
+    if(!fs.existsSync(abs)) return {path:abs, sha256:"", bytes:-1, standing:true};
+    const buf=fs.readFileSync(abs);
+    return {path:abs, sha256:sha(buf), bytes:buf.length, standing:true};
+  });
+}
+const files=walk(D,PROD).concat(injected());
 const prevFiles=manifests();
 const prevName=prevFiles[prevFiles.length-1]||null;
 const isGenesis=!prevName;
@@ -155,18 +173,37 @@ if(prev){
   const std=p=>{const f=(prev.files.find(x=>x.path===p)||files.find(x=>x.path===p)); return f&&f.standing;};
   const flag=a=>a.map(p=>std(p)?p+"  <-- STANDING":p);
   console.log("\nsince "+prev.date+":");
-  console.log("  added:    "+(changes.added.length?flag(changes.added).join("\n            "):"none"));
+  // An allowlisted path can be added to the MANIFEST while still absent from DISK
+  // (recorded with bytes -1). Rendering both as "added" invites the reader to conclude a
+  // file appeared when only an entry did. I made exactly that misreading of my own output
+  // within a minute of running it, so the two states are now spelled out.
+  const mark=p=>{const f=files.find(x=>x.path===p); return f&&f.bytes<0 ? p+"  (ABSENT on disk — entry only)" : p;};
+  console.log("  added:    "+(changes.added.length?flag(changes.added.map(mark)).join("\n            "):"none"));
   console.log("  removed:  "+(changes.removed.length?flag(changes.removed).join("\n            "):"none"));
   console.log("  modified: "+(changes.modified.length?flag(changes.modified).join("\n            "):"none"));
-  // The disclosure sidecar must be derivable for ANY extension. The original form only
-  // rewrote /\.md$/, so for chain.js the "expected sidecar" WAS chain.js, which trivially
-  // exists and filtered every non-.md file out as disclosed — collapsing state 3 into
-  // state 2 for the verifier's own source, the one attack the README names.
-  const sidecar=p=>{const i=p.lastIndexOf("/")+1, base=p.slice(i), dot=base.lastIndexOf(".");
-    return dot>0 ? p.slice(0,i)+base.slice(0,dot)+"_original"+base.slice(dot)
-                 : p+"_original";};
-  const undisclosed=changes.modified.filter(p=>std(p)&&!files.some(f=>f.path===sidecar(p)));
-  if(undisclosed.length) console.log("\n  ** STANDING FILE MODIFIED WITH NO _original.md: "+undisclosed.join(", ")+" **");
+  // BASELINE DIFF. Carrying the bytes is what lets a reader diff; a hash only says
+  // something moved. With the bytes present, "disclosed" vs "undisclosed" is a distinction
+  // with nothing behind it, so the sidecar convention and its three-state table are gone.
+  // This does not adjudicate a change. It shows it.
+  const BL=path.join(C,"baseline");
+  for(const rel of changes.modified){
+    const f=files.find(x=>x.path===rel);
+    if(!f||!f.standing||f.bytes<0||f.bytes>400000) continue;
+    const was=(prev.files||[]).find(x=>x.path===rel);
+    if(!was||!was.sha256) continue;
+    const blob=path.join(BL,was.sha256);
+    if(!fs.existsSync(blob)){ console.log("\n  ~ "+rel+"  changed; no baseline blob for "+was.sha256.slice(0,12)+" (predates the store)"); continue; }
+    const before=fs.readFileSync(blob,"utf8").split("\n");
+    const abs=rel.startsWith("/")?rel:path.join(D,rel);
+    const after=fs.readFileSync(abs,"utf8").split("\n");
+    const bs=new Set(before), as=new Set(after);
+    const added=after.filter(l=>!bs.has(l)), removed=before.filter(l=>!as.has(l));
+    console.log("\n  ~ "+rel+"   +"+added.length+" / -"+removed.length+" lines, against baseline "+was.sha256.slice(0,12));
+    for(const l of added.slice(0,6)) console.log("      + "+l.slice(0,108));
+    if(added.length>6) console.log("      + ... "+(added.length-6)+" more");
+    for(const l of removed.slice(0,4)) console.log("      - "+l.slice(0,108));
+    if(removed.length>4) console.log("      - ... "+(removed.length-4)+" more");
+  }
 }
 if(ARGS.has("--write")){
   const target=path.join(C,"manifest-"+date+".json");
@@ -195,9 +232,28 @@ if(ARGS.has("--write")){
     console.log("A live chain cannot be re-rooted; that is what --genesis would do.");
     process.exit(3);
   }
+  // Carry the bytes for every standing file, content-addressed. An unchanged file costs
+  // nothing on the next wake because its blob already exists under its own hash.
+  const BLW=path.join(C,"baseline");
+  fs.mkdirSync(BLW,{recursive:true});
+  let stored=0;
+  for(const f of files){
+    if(!f.standing||f.bytes<0||f.bytes>400000) continue;
+    const dst=path.join(BLW,f.sha256);
+    if(fs.existsSync(dst)) continue;
+    try{ fs.copyFileSync(f.path.startsWith("/")?f.path:path.join(D,f.path),dst); stored++; }catch(e){}
+  }
+  if(stored) console.log("baseline: stored "+stored+" new blob(s)");
   fs.writeFileSync(target, JSON.stringify({date, prev_manifest_hash:prevHash, files, manifest_hash},null,1));
   console.log("\nwritten: continuity/manifest-"+date+".json"+(isGenesis?"  (GENESIS — chain rooted here)":""));
 }
+{ const BLC=path.join(C,"baseline");
+  if(fs.existsSync(BLC)){
+    const names=fs.readdirSync(BLC);
+    const bad=names.filter(n=>sha(fs.readFileSync(path.join(BLC,n)))!==n);
+    console.log(bad.length? "\n** BASELINE CORRUPT: "+bad.length+" blob(s) do not hash to their own name: "+bad.slice(0,3).join(", ")+" **"
+                          : "\nbaseline: "+names.length+" blobs, every one hashes to its own name");
+  } }
 console.log("\nPUBLISH THESE:");
 console.log("  manifest "+manifest_hash);
 console.log("  identity "+identity_hash);

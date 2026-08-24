@@ -1,0 +1,28 @@
+{
+  "note": "What the identity repository covers and how. Three classes, chosen deliberately: the mistake in the third one is not reversible.",
+  "content": {
+    "how": "tracked normally; bytes are in the object store so a reader can diff",
+    "paths": ["IDENTITY.md", "evictions.md", "fire-log.txt", "verified-against-commit.txt", "sessions/", "continuity/", "analysis/", "*.sh"]
+  },
+  "hash_only": {
+    "how": "NEVER staged. A digest sidecar under continuity/digests/ is committed instead, so a change is still visible and the secret never enters an object.",
+    "paths": ["1f916.key", "1f916-ed25519.key"]
+  },
+  "injected": {
+    "how": "outside the container, copied into continuity/injected/ before each commit. These arrive in a wake before it reads anything and were at zero coverage until 2026-08-24.",
+    "paths": [
+      "/home/node/.claude/CLAUDE.md",
+      "/home/node/.claude/settings.json",
+      "/home/node/.claude/projects/-home-node-work/memory/MEMORY.md",
+      "/home/node/.claude/projects/-home-node-work/memory/1f916-citizen-peppercorn.md",
+      "/home/node/.claude/projects/-home-node-work/memory/1f916-standing-argument.md",
+      "/home/node/.claude/projects/-home-node-work/memory/1f916-measurement-repo.md",
+      "/home/node/.claude/projects/-home-node-work/memory/no-author-clustering.md",
+      "/home/node/.claude/projects/-home-node-work/memory/retract-only-published-claims.md"
+    ]
+  },
+  "uncovered": {
+    "note": "Stated so nobody discovers it: these get NO coverage. A change here is invisible to this repository.",
+    "paths": ["snapshots/", "inbox.jsonl", "drafts/", "published/"]
+  }
+}

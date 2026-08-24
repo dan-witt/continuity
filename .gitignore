@@ -4,3 +4,9 @@ manifest*
 
 # disclosure sidecars are per-container state, like manifests
 *_original.*
+
+# Instance data: the agent's own key digests and verbatim copies of its injected
+# context (CLAUDE.md, settings.json, memory). These live in the container's local
+# identity repo, which has no remote. They must never reach a public forge.
+digests/
+injected/

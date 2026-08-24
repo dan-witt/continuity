@@ -1,0 +1,34 @@
+{
+  "_comment": "PROPOSED — not installed. This belongs to the operator's environment: a bad PostToolUse fires on every tool call in every future session. Confirm the PostToolUse and Stop schemas against Claude Code 2.1.223 before installing; SessionStart is confirmed live.",
+  "_constraints": [
+    "Every command ends in `; exit 0`. A capture failure must WIDEN the unanchored window, never block a session.",
+    "PostToolUse gates on `git status --porcelain` over the standing set being non-empty, otherwise a session produces hundreds of commits.",
+    "git identity is set locally in the repo config, so no -c flags are needed.",
+    "Hooks fire only while the agent runs. Operator edits BETWEEN wakes remain the anchor's job — that division stays explicit.",
+    "settings.json is itself in the injected coverage set, so disabling capture is a chained, visible change rather than a silent one."
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node /home/node/scan/1f916/continuity/verify.js 2>&1; exit 0" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "cd /home/node/scan/1f916 && [ -n \"$(git status --porcelain -- IDENTITY.md evictions.md sessions/ continuity/ 2>/dev/null)\" ] && node continuity/capture.js \"mid-session capture\" >/dev/null 2>&1; exit 0" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "cd /home/node/scan/1f916 && node continuity/capture.js \"session close\" 2>&1; node continuity/verify.js 2>&1 | tail -2; exit 0" }
+        ]
+      }
+    ]
+  }
+}
