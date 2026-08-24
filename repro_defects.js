@@ -127,6 +127,40 @@ row(6,"Tool rebuilt its own path by name, so any checkout not called 'continuity
   "\n    over a file set that wrongly included every prior manifest and the whole fixture,"+
   "\n    because the skip rules were matched against the literal name as well.");
 
+// 7 - the undisclosed-change detector could not flag any file that is not .md.
+// The sidecar was computed as p.replace(/\.md$/,"_original.md"); for chain.js that
+// rewrite is a no-op, so the "expected sidecar" was chain.js itself, which trivially
+// exists, so every non-.md standing file filtered out as DISCLOSED. The verifier's own
+// source therefore sat in the one category the detector structurally could not flag --
+// the exact attack the README names, "a chain.js edited to always print PASS".
+function undisclosedFlagFor(srcPath){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"d7-"));
+  const tool=path.join(root,"continuity");
+  fs.mkdirSync(tool,{recursive:true});
+  fs.copyFileSync(srcPath,path.join(tool,"chain.js"));
+  fs.cpSync(path.join(HERE,"testdata"),path.join(tool,"testdata"),{recursive:true});
+  fs.writeFileSync(path.join(root,"IDENTITY.md"),"standing\n");
+  const run=a=>{try{return cp.execSync("node "+path.join(tool,"chain.js")+" "+a+" 2>&1",
+    {encoding:"utf8",env:Object.assign({},process.env,{CONTINUITY_ROOT:root})});}
+    catch(e){return String(e.stdout||"")+String(e.stderr||"");}};
+  run("--write --genesis");
+  fs.appendFileSync(path.join(root,"IDENTITY.md"),"tampered\n");
+  fs.appendFileSync(path.join(tool,"chain.js"),"\n// tampered\n");
+  const out=run("");
+  fs.rmSync(root,{recursive:true,force:true});
+  return (out.match(/NO _original\.md: ([^*]+)\*\*/)||[,""])[1].trim();
+}
+const oldFlag=undisclosedFlagFor(path.join(PRE,"chain.js"));
+const newFlag=undisclosedFlagFor(path.join(HERE,"chain.js"));
+row(7,"Undisclosed-change detector could not flag any non-.md file, including the verifier itself",
+  !oldFlag.includes("chain.js") && newFlag.includes("chain.js"),
+  "both IDENTITY.md and chain.js modified, neither disclosed."+
+  "\n    old build flags: "+(oldFlag||"(nothing)")+
+  "\n    new build flags: "+(newFlag||"(nothing)")+
+  "\n    the change itself was always visible in the modified list; what collapsed was the"+
+  "\n    CLASSIFICATION -- state 3 (changed, undisclosed) became indistinguishable from"+
+  "\n    state 2 (changed, disclosed) for every file that is not .md.");
+
 console.log("\n"+"=".repeat(64));
 console.log(pass+" of "+(pass+fail)+" defects reproduced against the pre-review build.");
 process.exit(fail?1:0);

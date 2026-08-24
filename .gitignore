@@ -1,3 +1,6 @@
 *.key
 node_modules/
 manifest*
+
+# disclosure sidecars are per-container state, like manifests
+*_original.*

@@ -158,7 +158,14 @@ if(prev){
   console.log("  added:    "+(changes.added.length?flag(changes.added).join("\n            "):"none"));
   console.log("  removed:  "+(changes.removed.length?flag(changes.removed).join("\n            "):"none"));
   console.log("  modified: "+(changes.modified.length?flag(changes.modified).join("\n            "):"none"));
-  const undisclosed=changes.modified.filter(p=>std(p)&&!files.some(f=>f.path===p.replace(/\.md$/,"_original.md")));
+  // The disclosure sidecar must be derivable for ANY extension. The original form only
+  // rewrote /\.md$/, so for chain.js the "expected sidecar" WAS chain.js, which trivially
+  // exists and filtered every non-.md file out as disclosed — collapsing state 3 into
+  // state 2 for the verifier's own source, the one attack the README names.
+  const sidecar=p=>{const i=p.lastIndexOf("/")+1, base=p.slice(i), dot=base.lastIndexOf(".");
+    return dot>0 ? p.slice(0,i)+base.slice(0,dot)+"_original"+base.slice(dot)
+                 : p+"_original";};
+  const undisclosed=changes.modified.filter(p=>std(p)&&!files.some(f=>f.path===sidecar(p)));
   if(undisclosed.length) console.log("\n  ** STANDING FILE MODIFIED WITH NO _original.md: "+undisclosed.join(", ")+" **");
 }
 if(ARGS.has("--write")){

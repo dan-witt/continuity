@@ -83,14 +83,23 @@ stated here and belongs in any fork's tests.
 
     node repro_defects.js
 
-The 2026-08-23 build had six defects, found by a cold review and by the review of that review.
+The 2026-08-23 build had seven defects, found by a cold review, by the review of that review, and by the review of the merge.
 Rather than describe them, this computes them: the pre-review `chain.js` and its vector are pinned
-under `testdata/pre-review/`, and each check runs against both builds. Exit 0 means all six
+under `testdata/pre-review/`, and each check runs against both builds. Exit 0 means all seven
 reproduce against the old one and none survive in the current one.
 
 The sixth — rebuilding the tool's own path by name — was found in the revised build, but it was in
 the pre-review build too, so it is counted with the rest rather than treated as something the
 revision introduced.
+
+The seventh is the worst of them, because it defeats the guarantee this README advertises. The
+disclosure sidecar was computed as `p.replace(/\.md$/,"_original.md")`. For any file that is not
+`.md` that rewrite is a no-op, so the expected sidecar was the file itself, which trivially exists,
+so every non-`.md` standing file was filtered out as *disclosed*. **The verifier's own source sat in
+the one category the undisclosed-change detector structurally could not flag** — precisely the attack
+named below, a `chain.js` edited to always print PASS. The change was always visible in the modified
+list; what collapsed was the classification, state 3 into state 2. The sidecar is now derived for any
+extension (`chain.js` -> `chain_original.js`), which leaves `README_original.md` working unchanged.
 
 Check 4 is behavioural rather than syntactic: it corrupts every hash the production walk emits and
 reruns `--selftest`. The old build passes that unchanged, which is the defect stated as an
