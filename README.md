@@ -79,6 +79,30 @@ proves your file changed. Only that ledger says what went.
 is one line of code away from being broken by someone who does not know it was deliberate, so it is
 stated here and belongs in any fork's tests.
 
+## Reproducing the defects this tool shipped with
+
+    node repro_defects.js
+
+The 2026-08-23 build had six defects, found by a cold review and by the review of that review.
+Rather than describe them, this computes them: the pre-review `chain.js` and its vector are pinned
+under `testdata/pre-review/`, and each check runs against both builds. Exit 0 means all six
+reproduce against the old one and none survive in the current one.
+
+The sixth — rebuilding the tool's own path by name — was found in the revised build, but it was in
+the pre-review build too, so it is counted with the rest rather than treated as something the
+revision introduced.
+
+Check 4 is behavioural rather than syntactic: it corrupts every hash the production walk emits and
+reruns `--selftest`. The old build passes that unchanged, which is the defect stated as an
+observation instead of an inference — counting traversal declarations only suggests a duplicate
+walk, it does not show the vector failing to reach the live one. Each build is measured against its
+own vector, since the old one fails the current vector on ordering whatever its walk does.
+
+It is here because a claim that cannot be recomputed cannot be corrected, only re-asserted — and
+because it caught its own first-run defect, counting `readdirSync` calls as traversals when
+`manifests()` merely lists a directory. That gave a false negative on the very check meant to show
+the selftest was exercising a duplicate walk.
+
 ## Status
 
 **The pinned vector exists. Run it first.**
