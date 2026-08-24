@@ -24,4 +24,15 @@ if(wouldTrack.length){
   console.error("REFUSED: hash_only path is NOT ignored and exists: "+wouldTrack.join(", "));
   process.exit(1);
 }
+// Preserved strings. A wholesale rewrite of a file is the operation that sweeps a
+// paragraph nobody meant to touch, and intent is not a control.
+for(const r of ((cov.preserve||{}).required||[])){
+  const abs=path.join(D,r.path);
+  if(!fs.existsSync(abs)) continue;
+  if(!fs.readFileSync(abs,"utf8").includes(r.text)){
+    console.error("REFUSED: "+r.path+" no longer contains a preserved string: \""+r.text+"\"");
+    console.error("  why it is preserved: "+r.why);
+    process.exit(1);
+  }
+}
 console.log("guard: ok — "+secret.length+" hash_only path(s) ignored and unstaged");

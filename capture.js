@@ -28,7 +28,12 @@ for(const p of cov.injected.paths){
   const safe=p.replace(/^\//,"").replace(/\//g,"__");
   const dst=path.join(INJ,safe), marker=dst+".ABSENT";
   if(fs.existsSync(p)){ fs.copyFileSync(p,dst); if(fs.existsSync(marker)) fs.unlinkSync(marker); }
-  else { if(fs.existsSync(dst)) fs.unlinkSync(dst); fs.writeFileSync(marker,"absent at "+new Date().toISOString()+"\n"); }
+  // STABLE CONTENT. This previously wrote a fresh timestamp on every run, which made
+  // capture dirty the tree unconditionally: capture -> marker changes -> gate sees dirty
+  // -> next tool call captures -> marker changes. A self-sustaining commit loop in which
+  // 9 of the first 30 commits carried no information at all. Absence is a STATE, not an
+  // event, and git already stamps when it was observed. Idempotent now.
+  else { if(fs.existsSync(dst)) fs.unlinkSync(dst); fs.writeFileSync(marker,"absent\n"); }
 }
 
 // 4. stage, then guard AGAIN -- `add -A` is exactly where a missing ignore rule would bite

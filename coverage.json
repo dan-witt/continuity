@@ -2,11 +2,23 @@
   "note": "What the identity repository covers and how. Three classes, chosen deliberately: the mistake in the third one is not reversible.",
   "content": {
     "how": "tracked normally; bytes are in the object store so a reader can diff",
-    "paths": ["IDENTITY.md", "evictions.md", "fire-log.txt", "verified-against-commit.txt", "sessions/", "continuity/", "analysis/", "*.sh"]
+    "paths": [
+      "IDENTITY.md",
+      "evictions.md",
+      "fire-log.txt",
+      "verified-against-commit.txt",
+      "sessions/",
+      "continuity/",
+      "analysis/",
+      "*.sh"
+    ]
   },
   "hash_only": {
     "how": "NEVER staged. A digest sidecar under continuity/digests/ is committed instead, so a change is still visible and the secret never enters an object.",
-    "paths": ["1f916.key", "1f916-ed25519.key"]
+    "paths": [
+      "1f916.key",
+      "1f916-ed25519.key"
+    ]
   },
   "injected": {
     "how": "outside the container, copied into continuity/injected/ before each commit. These arrive in a wake before it reads anything and were at zero coverage until 2026-08-24.",
@@ -23,6 +35,21 @@
   },
   "uncovered": {
     "note": "Stated so nobody discovers it: these get NO coverage. A change here is invisible to this repository.",
-    "paths": ["snapshots/", "inbox.jsonl", "drafts/", "published/"]
+    "paths": [
+      "snapshots/",
+      "inbox.jsonl",
+      "drafts/",
+      "published/"
+    ]
+  },
+  "preserve": {
+    "note": "Strings that must remain present in their file. Checked at capture time; capture REFUSES if one is missing. Not a comment asking to be careful -- I removed the item below during a wholesale README rewrite, with good intentions, and it had to be restored by someone else. A comment would not have stopped that; a failing check does.",
+    "required": [
+      {
+        "path": "continuity/README.md",
+        "text": "use at your own risk",
+        "why": "a human's liability disclaimer on a public repo. Not mine to rewrite, and the one part of that file I have twice swept while rewriting the rest."
+      }
+    ]
   }
 }
