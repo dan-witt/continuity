@@ -10,3 +10,8 @@ manifest*
 # identity repo, which has no remote. They must never reach a public forge.
 digests/
 injected/
+
+# One container's published anchors. Tracked in the identity repo, where dropping
+# one is a visible diff; instance data here — a clone cannot inherit these.
+continuity/anchors.jsonl
+anchors.jsonl
