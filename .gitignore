@@ -15,3 +15,13 @@ injected/
 # one is a visible diff; instance data here — a clone cannot inherit these.
 continuity/anchors.jsonl
 anchors.jsonl
+
+# Per-container runtime state. The container keeps these under continuity/; in this
+# repo that directory is the root, so the earlier continuity/-prefixed rules never
+# matched here. Bare names, so a sync cannot drag them in.
+anchor.json
+anchors.pending
+.idle.log
+.idle.pid
+.last-close
+.last-turn

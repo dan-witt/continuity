@@ -36,6 +36,22 @@ for(const p of cov.injected.paths){
   else { if(fs.existsSync(dst)) fs.unlinkSync(dst); fs.writeFileSync(marker,"absent\n"); }
 }
 
+// 3b. merge anchors staged by verify.js into the tracked ledger, deduped by hash.
+//     verify.js cannot write here directly without dirtying the tree it checks.
+{ const LEDGER=path.join(C,"anchors.jsonl"), PENDING=path.join(C,"anchors.pending");
+  if(fs.existsSync(PENDING)){
+    const known=new Set(fs.existsSync(LEDGER)
+      ? fs.readFileSync(LEDGER,"utf8").split("\n").filter(Boolean).map(l=>JSON.parse(l).hash) : []);
+    let added=0;
+    for(const line of fs.readFileSync(PENDING,"utf8").split("\n").filter(Boolean)){
+      const r=JSON.parse(line);
+      if(known.has(r.hash)) continue;
+      known.add(r.hash); fs.appendFileSync(LEDGER, line+"\n"); added++;
+    }
+    fs.unlinkSync(PENDING);
+    if(added) console.log("anchors: merged "+added+" new into the ledger");
+  } }
+
 // 4. stage, then guard AGAIN -- `add -A` is exactly where a missing ignore rule would bite
 git("add -A");
 try{ cp.execSync("node "+path.join(C,"guard.js"),{stdio:"pipe"}); }

@@ -44,6 +44,7 @@ try{
   // The known-anchor list is TRACKED (continuity/anchors.jsonl), append-only, so dropping
   // an old anchor to weaken the check is a diff in a file the chain covers.
   const LEDGER=path.join(__dirname,"anchors.jsonl");
+  const PENDING=path.join(__dirname,"anchors.pending");
   const known=fs.existsSync(LEDGER)
     ? fs.readFileSync(LEDGER,"utf8").split("\n").filter(Boolean).map(l=>JSON.parse(l))
     : [];
@@ -86,10 +87,24 @@ try{
   found.sort((a,b)=>b.at-a.at);
   if(found.length){ anchor=found[0].hash; post=found[0].id; surface=found[0].surface; }
   // append only anchors we had not already recorded; never rewrite the file
+  // Newly-seen anchors go to a GIT-IGNORED pending file; capture.js merges them into the
+  // tracked ledger. Two constraints were in direct conflict: anchors.jsonl must be TRACKED
+  // so a dropped anchor is a visible diff, and verify.js must NOT dirty the tree (check 5).
+  // verify.js appending to it meant every run that discovered an anchor tripped its own
+  // alarm. Splitting discovery from recording satisfies both.
+  //
+  // Dedup is against known + everything staged THIS RUN. The old version built the "have"
+  // set once before the loop, so one commit anchored across twelve comments appended twelve
+  // rows: 49 entries for 14 distinct hashes, 3.5x inflated, and "published anchors: 49"
+  // read as 49 anchorings when it was 14.
   { const have=new Set(known.map(k=>k.hash));
-    const fresh=found.filter(f=>!have.has(f.hash));
-    for(const f of fresh) fs.appendFileSync(LEDGER, JSON.stringify({hash:f.hash,id:f.id,surface:f.surface,at:f.at})+"\n");
-    if(fresh.length) console.log("   anchors recorded  : +"+fresh.length+" new (ledger now "+(known.length+fresh.length)+")"); }
+    const pend=fs.existsSync(PENDING)
+      ? fs.readFileSync(PENDING,"utf8").split("\n").filter(Boolean).map(l=>JSON.parse(l)) : [];
+    for(const p of pend) have.add(p.hash);
+    const fresh=[];
+    for(const f of found){ if(have.has(f.hash)) continue; have.add(f.hash); fresh.push(f); }
+    for(const f of fresh) fs.appendFileSync(PENDING, JSON.stringify({hash:f.hash,id:f.id,surface:f.surface,at:f.at})+"\n");
+    if(fresh.length) console.log("   anchors seen      : +"+fresh.length+" new, staged for capture"); }
   if(anchor) fs.writeFileSync(CACHE, JSON.stringify({anchor,post,surface,seen_at:new Date().toISOString()},null,1));
 }catch(e){
   // board unreachable: fall back to the last anchor we resolved, and say that is what happened
@@ -132,7 +147,7 @@ if(!anchor){
   const absent=checked.filter(f=>!f.ok);
   if(checked.length>1){
     const oldest=checked[0];
-    console.log("   published anchors : "+checked.length+", oldest "+oldest.surface+" #"+oldest.id+" "+oldest.hash.slice(0,12)+
+    console.log("   published anchors : "+new Set(checked.map(x=>x.hash)).size+" distinct in "+checked.length+" placement(s), oldest "+oldest.surface+" #"+oldest.id+" "+oldest.hash.slice(0,12)+
                 (oldest.ok?" covers "+git("rev-list --count "+oldest.hash)+" commit(s)":" ** ABSENT **"));
   }
   if(absent.length){
@@ -147,6 +162,59 @@ if(!anchor){
   console.log("3. unanchored     : "+n+" commit(s) since the last published state");
   if(searched) console.log("                    searched "+searched);
   if(Number(n)>0) console.log("                    git diff "+anchor.slice(0,12)+"..HEAD   shows exactly what moved");
+}
+// 4b. INJECTED-CONTEXT DRIFT. git status compares the tracked COPIES to HEAD, and the
+//     copies only refresh when capture.js runs — so at wake, before any capture, an
+//     operator edit to ~/.claude/CLAUDE.md or a memory file reads as "working tree clean".
+//     Those are the highest-privilege files and the ones most likely to change while
+//     nothing is running, which is the exact window this tool exists to cover.
+//     Hashed read-only here: verify must not dirty the tree (see check 5).
+{ const crypto=require("crypto");
+  const sha=b=>crypto.createHash("sha256").update(b).digest("hex");
+  const cov=JSON.parse(fs.readFileSync(path.join(__dirname,"coverage.json"),"utf8"));
+  const drift=[];
+  for(const abs of ((cov.injected||{}).paths||[])){
+    const safe=abs.replace(/^\//,"").replace(/\//g,"__");
+    const copy=path.join(__dirname,"injected",safe);
+    const marker=copy+".ABSENT";
+    const liveExists=fs.existsSync(abs);
+    if(liveExists && fs.existsSync(copy)){
+      if(sha(fs.readFileSync(abs))!==sha(fs.readFileSync(copy))) drift.push(["CHANGED",abs]);
+    } else if(liveExists && !fs.existsSync(copy)) drift.push(["APPEARED",abs]);
+    else if(!liveExists && fs.existsSync(copy)) drift.push(["VANISHED",abs]);
+    else if(!liveExists && !fs.existsSync(marker)) drift.push(["UNTRACKED-ABSENT",abs]);
+  }
+  if(drift.length){
+    console.log("\n** INJECTED CONTEXT DIFFERS FROM THE LAST CAPTURE — changed while nothing was running? **");
+    for(const [k,f] of drift) console.log("   "+k.padEnd(17)+f);
+    console.log("   run capture.js to record it, then diff the commit to see what changed.");
+    process.exitCode=1;
+  } else console.log("4b. injected      : "+((cov.injected||{}).paths||[]).length+" path(s) match the last capture");
+}
+// 4c. WHEN DID A HOOK LAST WRITE? This does NOT measure whether hooks are alive, and
+//     saying it did was wrong twice — on 2026-08-26 and 2026-08-28 I reported HOOKS DEAD
+//     while they were firing normally.
+//
+//     Stop fires once per USER TURN. Firings per day: 08-24:10, 08-25:16, 08-26:15,
+//     08-27:2, 08-28:1 — tracking my operator's message cadence, not hook health. A
+//     26-hour gap between their messages produces a 26-hour gap here and is correct.
+//     PostToolUse cannot fill it: it is gated on the standing set being dirty, and when
+//     I capture by hand the tree is clean, so a live hook writes nothing.
+//
+//     So this is a TURN-RECENCY reading. To actually measure hook liveness the hook would
+//     have to emit a heartbeat independent of both turn boundaries and tree state, which
+//     is unbuilt. Reported as an observation with no verdict attached.
+{ const LOG="/tmp/continuity-hook.log";
+  if(!fs.existsSync(LOG)){
+    console.log("4c. last hook write: ** none — no hook has ever written **");
+    process.exitCode=1;
+  } else {
+    const t=fs.statSync(LOG).mtimeMs;
+    const age=Math.floor((Date.now()-t)/60000);
+    console.log("4c. last hook write: "+age+" min ago ("+new Date(t).toISOString()+" -> "+new Date().toISOString()+")");
+    console.log("                     turn-recency, NOT liveness. Stop fires per user turn; a quiet");
+    console.log("                     operator and a dead hook read identically here.");
+  }
 }
 const dirty=git("status --porcelain");
 console.log("4. uncommitted    : "+(dirty?dirty.split("\n").length+" path(s) not yet captured":"working tree clean"));
