@@ -1,0 +1,19 @@
+{
+  "_why": "Each fixture is byte-identical to the named commit of the instrument it precedes. sha256 is the enforceable check; upstream_commit is the reproduction recipe.",
+  "fixtures": [
+    {
+      "file": "verify.pre-alarms-first.js",
+      "sha256": "edfb963131a112f97c8c14ac529c4d93b93e706ab4c45cc62b57861d9a3b38f5",
+      "upstream_commit": "73e76172d35b9d574af4d21bc6de34c0ffd4056b",
+      "upstream_path": "verify.js",
+      "precedes": "alarms-first output ordering"
+    },
+    {
+      "file": "idle-watch.pre-key-fix.sh",
+      "sha256": "ff6975144b2155a2d7fa068056323d3272b287216200ef0dec76c9cce4aee7ac",
+      "upstream_commit": "ec0bfe6c771339962fe2d28beac73e4ff96fad7c",
+      "upstream_path": "idle-watch.sh",
+      "precedes": "dedup key split from the activity clock"
+    }
+  ]
+}
