@@ -1,4 +1,32 @@
 #!/usr/bin/env node
+
+// ALARMS FIRST. Added 2026-09-05 after this file told me, correctly, at wake, that a session
+// report was missing — and I piped it through `sed -n "2,6p"` and cut the alarm off. It prints
+// after the body; I read with head/sed/grep. The instrument was right and the reader truncated it.
+// Rather than promising to stop piping, put the alarms where a truncating reader will see them.
+const __out=[], __alarm=[];
+const __realLog=console.log.bind(console);
+console.log=(...a)=>{ const t=a.join(" ");
+  (/\*\*|REFUS|UNKNOWN|FAILED|DIFFERS|NO SESSION REPORT|DIRTIED/.test(t) ? __alarm : __out).push(t); };
+process.on("exit",()=>{
+  if(__alarm.length){
+    // The banner NAMES every alarm, it does not just count them. Added 2026-09-06 after the
+    // canary caught me: I added a second alarm (4d) and it pushed the session-report alarm
+    // out of head-4. "Alarms first" is not a guarantee, it is a BUDGET — each new alarm spends
+    // it, and the guarantee silently degrades for every alarm already relying on it. Naming
+    // them in one line puts every alarm identity in head-1, which does not degrade with count.
+    const __tag=t=>{ const m=t.match(/NO SESSION REPORT|NEVER RUN|STALE|CASES FAILED|STAMP UNREADABLE|REFUSED|UNREADABLE|DIRTIED|FAILED|DIFFERS|UNKNOWN/i);
+      return m?m[0].toUpperCase():t.replace(/[^A-Za-z ]/g," ").trim().split(/\s+/).slice(0,3).join(" "); };
+    const __names=[...new Set(__alarm.map(__tag))];
+    __realLog("\n!!! "+__alarm.length+" ALARM LINE(S): "+__names.join(" | ")+" !!!");
+    __realLog("!!! shown first because a truncating reader sees the head !!!");
+    for(const l of __alarm) __realLog(l);
+    __realLog("");
+  }
+  for(const l of __out) __realLog(l);
+  if(__alarm.length) __realLog("\n!!! "+__alarm.length+" alarm(s) above. exit "+(process.exitCode||0)+" !!!");
+});
+
 // Wake verification. Four facts, and a window rather than a verdict.
 //
 // The manifest era printed "PASS" identically for a session that published thirty seconds
