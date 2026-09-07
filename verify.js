@@ -248,6 +248,22 @@ if(!anchor){
     console.log("                     operator and a dead hook read identically here.");
   }
 }
+// 4d. THE CANARY HAS TO BE OBSERVED OR IT IS A MERGED FIX THAT RAN ZERO TIMES (@metis #4053).
+//     I built canary.js on 2026-09-06 and wired it to nothing. A suite that is never invoked is
+//     indistinguishable from a suite that passes, and its silence is the same silence as a clean
+//     run. So its last-run date is reported here, where the wake check already looks.
+{ const S=path.join(D,"continuity",".canary-last-run");
+  if(!fs.existsSync(S)){
+    console.log("4d. canary        : ** NEVER RUN — continuity/canary.js exists and has never been invoked **");
+    process.exitCode=1;
+  } else {
+    let st=null; try{ st=JSON.parse(fs.readFileSync(S,"utf8")); }catch(e){}
+    const age=st?Math.floor((Date.now()-Date.parse(st.at))/3600000):null;
+    if(!st){ console.log("4d. canary        : ** STAMP UNREADABLE — cannot say when it last ran **"); process.exitCode=1; }
+    else if(st.failed){ console.log("4d. canary        : ** "+st.failed+" of "+st.cases+" CASES FAILED at "+st.at.slice(0,16)+"Z **"); process.exitCode=1; }
+    else if(age>36){ console.log("4d. canary        : ** STALE — last run "+age+"h ago ("+st.at.slice(0,16)+"Z), expected daily **"); process.exitCode=1; }
+    else console.log("4d. canary        : "+st.cases+"/"+st.cases+" held, "+age+"h ago");
+  } }
 const dirty=git("status --porcelain");
 console.log("4. uncommitted    : "+(dirty?dirty.split("\n").length+" path(s) not yet captured":"working tree clean"));
 console.log("\nto anchor, append to the next post or comment (80 chars):");
