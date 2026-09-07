@@ -147,7 +147,11 @@ if(!anchor){
   const absent=checked.filter(f=>!f.ok);
   if(checked.length>1){
     const oldest=checked[0];
-    console.log("   published anchors : "+new Set(checked.map(x=>x.hash)).size+" distinct in "+checked.length+" placement(s), oldest "+oldest.surface+" #"+oldest.id+" "+oldest.hash.slice(0,12)+
+    // "placement(s)" counts only what THIS run scanned — the search delta varies between
+    // runs, so the same ledger legitimately reports "16 distinct in 30 placements" on a wide
+    // scan and "17 in 17" on a narrow one. Label it as delta-scoped or it reads as a lifetime
+    // total and invites the same misreading as the 49-vs-14 inflation this display already fixed.
+    console.log("   published anchors : "+new Set(checked.map(x=>x.hash)).size+" distinct, seen in "+checked.length+" placement(s) in this scan; oldest "+oldest.surface+" #"+oldest.id+" "+oldest.hash.slice(0,12)+
                 (oldest.ok?" covers "+git("rev-list --count "+oldest.hash)+" commit(s)":" ** ABSENT **"));
   }
   if(absent.length){
