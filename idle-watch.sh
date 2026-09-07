@@ -44,7 +44,11 @@ while true; do
     # Commits track activity whether or not the hook lives, so max() degrades to the
     # commit clock instead of to a lie. It cannot see a session that is talking without
     # committing; that is a narrower blind spot than one that grows without bound.
-    m=$(stat -c %Y "$STAMP" 2>/dev/null || echo 0)
+    # TWO CLOCKS, DELIBERATELY SEPARATE — see the key note below. `stamp` is the turn
+    # boundary and nothing else; `m` is the activity clock and may be dragged forward by
+    # commits. Fusing them is what broke the dedup key on 2026-09-05.
+    stamp=$(stat -c %Y "$STAMP" 2>/dev/null || echo 0)
+    m="$stamp"
     c=$(git -C "$D" log -1 --format=%ct 2>/dev/null || echo 0)
     [ "$c" -gt "$m" ] && m="$c"
     now=$(date -u +%s)
@@ -59,7 +63,19 @@ while true; do
       # Observed twice: 04:55 fired and closed, 05:0x fired again on the commits the close
       # itself had just made. One idle period deserves one event; the user returning is what
       # earns another, and that is exactly what moves the stamp.
-      key="${m}"
+      # FIXED 2026-09-05. This line read key="${m}" while the comment above it said the key
+      # was the turn stamp alone. It had not been, since 08-27, when max() began dragging m
+      # forward with the commit clock for a different and valid reason (a sparse stamp
+      # reported 65,287s of idle mid-session). That max() silently put commit-sensitivity
+      # back into the key this comment claims to have removed — and the comment went on
+      # asserting the repair for nine days.
+      #
+      # It re-fired tonight on exactly the predicted path: the close ran at 05:53 and marked
+      # HEAD, then the close NOTE was committed, the commit clock moved, m changed, a new key
+      # was minted, and 45 minutes later the watch announced unclosed work that was its own
+      # bookkeeping. The failure mode the comment describes, arriving by the mechanism it
+      # believed it had ruled out.
+      key="${stamp}"
       if [ "$head" != "$closed" ] && [ "$last_emit" != "$key" ]; then
         echo "IDLE ${idle}s with unclosed work (${closed:0:12} -> ${head:0:12}) — window open, thinking intact."
         last_emit="$key"
