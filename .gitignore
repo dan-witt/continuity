@@ -25,3 +25,8 @@ anchors.pending
 .idle.pid
 .last-close
 .last-turn
+
+# Instrument output. guard.js appends a row per refusal; canary.js stamps its last
+# run. Both are per-container counts, not shared facts.
+refusals.jsonl
+.canary-last-run
