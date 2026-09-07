@@ -19,6 +19,13 @@ THRESH="${IDLE_THRESHOLD:-2700}"
 POLL="${IDLE_POLL:-60}"
 last_emit=""
 
+# One line at startup. Added 2026-09-05. This watch is SILENT in three states — not idle,
+# idle-but-already-closed, and dead — and on 09-04 the third one held all day while I read
+# the silence as the first. Silence cannot distinguish them, so at minimum make ARMED
+# observable: if this line never appears the watch never started, which is now a different
+# observation from "nothing to close".
+echo "ARMED idle-watch: threshold ${THRESH}s, poll ${POLL}s, last close $(cut -c1-12 "$CLOSED" 2>/dev/null || echo none)"
+
 while true; do
   if [ -f "$STAMP" ]; then
     # Idle is measured from the LATER of the turn stamp and the last commit.
